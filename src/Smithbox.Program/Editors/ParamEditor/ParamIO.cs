@@ -174,9 +174,33 @@ public class ParamIO
         var getVanillaRow = onlyAffectVanillaNames;
         try
         {
-            Param.Row? FindRow(Param p, int id, int idCount, out int iteration)
+            Param.Row? FindRowByName(Param p, List<Param.Row> newlyAddedRows, string rowName)
+            {
+                // First check existing rows by name
+                for (var i = 0; i < p.Rows.Count; i++)
+                {
+                    if (p.Rows[i].Name != null && p.Rows[i].Name.Equals(rowName))
+                    {
+                        return p.Rows[i];
+                    }
+                }
+                
+                // Then check newly added rows by name
+                for (var i = 0; i < newlyAddedRows.Count; i++)
+                {
+                    if (newlyAddedRows[i].Name != null && newlyAddedRows[i].Name.Equals(rowName))
+                    {
+                        return newlyAddedRows[i];
+                    }
+                }
+
+                return null;
+            }
+            
+            Param.Row? FindRowById(Param p, List<Param.Row> newlyAddedRows, int id, int idCount, out int iteration)
             {
                 iteration = 1;
+                // First check existing rows
                 for (var i = 0; i < p.Rows.Count; i++)
                 {
                     if (p.Rows[i].ID == id)
@@ -187,7 +211,22 @@ public class ParamIO
                         }
                         else
                         {
-                            // This is a dupe row and this name is meant for a different row, keep iterating to find the next row with this ID.
+                            iteration++;
+                        }
+                    }
+                }
+                
+                // Then check newly added rows
+                for (var i = 0; i < newlyAddedRows.Count; i++)
+                {
+                    if (newlyAddedRows[i].ID == id)
+                    {
+                        if (iteration == idCount)
+                        {
+                            return newlyAddedRows[i];
+                        }
+                        else
+                        {
                             iteration++;
                         }
                     }
@@ -209,16 +248,29 @@ public class ParamIO
 
             var csvLines = csvString.Split("\n");
             int fieldIndex = -1;
+            bool hasHeader = false;
             
             if (csvLines[0].Trim().StartsWith($@"ID{separator}"))
             {
+                hasHeader = true;
                 // Parse header to find the field index
                 var headers = csvLines[0].Trim().Split(separator);
-                fieldIndex = Array.IndexOf(headers, field);
+                
+                // Remove any empty trailing headers caused by trailing separator
+                var cleanHeaders = new List<string>();
+                foreach (var header in headers)
+                {
+                    if (!string.IsNullOrWhiteSpace(header))
+                    {
+                        cleanHeaders.Add(header.Trim());
+                    }
+                }
+                
+                fieldIndex = cleanHeaders.IndexOf(field);
                 
                 if (fieldIndex == -1)
                 {
-                    return ("CSV has wrong field name", null);
+                    return ($"CSV header does not contain field '{field}'. Available fields: {string.Join(", ", cleanHeaders)}", null);
                 }
 
                 csvLines[0] = ""; //skip column label row
@@ -246,16 +298,15 @@ public class ParamIO
                         continue;
                 }
 
-                // For multi-column CSV with header, we need at least fieldIndex+1 columns
-                // For simple 2-column CSV, we need exactly 2 columns
-                if (fieldIndex != -1)
+                // Validate column count based on whether we have header or not
+                if (hasHeader && fieldIndex != -1)
                 {
                     if (csvs.Length <= fieldIndex)
                     {
-                        return ("CSV has insufficient columns for the specified field", null);
+                        return ($"CSV line has insufficient columns. Expected at least {fieldIndex + 1} columns but got {csvs.Length}", null);
                     }
                 }
-                else
+                else if (!hasHeader)
                 {
                     if (csvs.Length != 2 && !(csvs.Length == 3 && csvs[2].Trim().Equals("")))
                     {
@@ -270,39 +321,69 @@ public class ParamIO
                 var idCount = idCounts[id] = idCounts[id] + 1;
 
                 // Extract the value based on field index or default to second column
-                var value = fieldIndex != -1 ? csvs[fieldIndex] : csvs[1];
-
-                Param.Row? row = FindRow(p, id, idCount, out var idIteration);
-                Param.Row? row_vanilla = null;
-                if (getVanillaRow)
+                string value;
+                if (hasHeader && fieldIndex != -1)
                 {
-                    if (p_vanilla != null)
-                    {
-                        row_vanilla = FindRow(p_vanilla, id, idCount, out var idIteration_Vanilla);
-                    }
+                    value = csvs[fieldIndex];
+                }
+                else
+                {
+                    // For headerless CSV, assume field is at index 1 (Name column)
+                    value = csvs[1];
                 }
 
+                Param.Row? row = null;
+                Param.Row? row_vanilla = null;
+                
+                // For Name field, search by name first to check for duplicates
+                if (field.Equals("Name"))
+                {
+                    row = FindRowByName(p, addedParams, value);
+                }
+                
+                // If not found by name (for Name field) or for non-Name fields, search by ID
                 if (row == null)
                 {
-                    if (ignoreMissingRows)
-                    {
-                        continue;
-                    }
+                    row = FindRowById(p, addedParams, id, idCount, out var idIteration);
                     
-                    // Create a new row if it doesn't exist
-                    string newRowName = field.Equals("Name") ? value : "";
-                    row = new Param.Row(id, newRowName, p);
-                    addedParams.Add(row);
-                    addedCount++;
+                    if (getVanillaRow)
+                    {
+                        if (p_vanilla != null)
+                        {
+                            row_vanilla = FindRowById(p_vanilla, new List<Param.Row>(), id, idCount, out var idIteration_Vanilla);
+                        }
+                    }
+
+                    // If still not found, create new row
+                    if (row == null)
+                    {
+                        if (ignoreMissingRows)
+                        {
+                            continue;
+                        }
+                        
+                        // Create a new row if it doesn't exist
+                        string newRowName = field.Equals("Name") ? value : "";
+                        row = new Param.Row(id, newRowName, p);
+                        addedParams.Add(row);
+                        addedCount++;
+                    }
+                }
+                else if (getVanillaRow && p_vanilla != null)
+                {
+                    // If found by name, still need to get vanilla row for comparison
+                    row_vanilla = FindRowByName(p_vanilla, new List<Param.Row>(), value);
                 }
 
                 if (field.Equals("Name"))
                 {
+                    // If we found existing row by name, the name is already correct, skip
                     if (value.Equals(row.Name))
                     {
                         continue;
                     }
 
+                    // For newly created rows or rows that need name update
                     // 'onlyAffectEmptyNames' and 'onlyAffectVanillaNames' are only used by "Import Row Names" function at the moment.
                     if (onlyAffectVanillaNames)
                     {
