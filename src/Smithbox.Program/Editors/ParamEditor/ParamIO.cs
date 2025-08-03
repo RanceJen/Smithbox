@@ -83,6 +83,30 @@ public class ParamIO
             return ("No Param selected", null);
         }
 
+        // Helper function to find row by both ID and Name
+        Param.Row? FindRowByIdAndName(Param param, List<Param.Row> newRows, int id, string name)
+        {
+            // First check existing rows
+            for (var i = 0; i < param.Rows.Count; i++)
+            {
+                if (param.Rows[i].ID == id && param.Rows[i].Name != null && param.Rows[i].Name.Equals(name))
+                {
+                    return param.Rows[i];
+                }
+            }
+            
+            // Then check newly added rows
+            for (var i = 0; i < newRows.Count; i++)
+            {
+                if (newRows[i].ID == id && newRows[i].Name != null && newRows[i].Name.Equals(name))
+                {
+                    return newRows[i];
+                }
+            }
+
+            return null;
+        }
+
         var paramdef = p.AppliedParamdef;
 
         if (paramdef != null)
@@ -111,11 +135,16 @@ public class ParamIO
 
                 var id = int.Parse(csvs[0]);
                 var name = csvs[1];
-                Param.Row? row = p[id];
+                
+                // Find row by both ID and Name
+                Param.Row? row = FindRowByIdAndName(p, addedParams, id, name);
+                bool isNewRow = false;
+                
                 if (row == null || replaceParams)
                 {
                     row = new Param.Row(id, name, p);
                     addedParams.Add(row);
+                    isNewRow = true;
                 }
 
                 if (!name.Equals(row.Name))
@@ -139,7 +168,12 @@ public class ParamIO
                             return ($@"Could not assign {v} to field {col.Def.InternalName}", null);
                         }
 
-                        actions.AppendParamEditAction(row, (PseudoColumn.None, col), newval);
+                        // Only add action if value is different
+                        var currentVal = row.Get((PseudoColumn.None, col));
+                        if (!newval.Equals(currentVal))
+                        {
+                            actions.AppendParamEditAction(row, (PseudoColumn.None, col), newval);
+                        }
                     }
                     else
                     {
@@ -150,7 +184,12 @@ public class ParamIO
                             return ($@"Could not assign {v} to field {col.Def.InternalName}", null);
                         }
 
-                        actions.AppendParamEditAction(row, (PseudoColumn.None, col), newval);
+                        // Only add action if value is different
+                        var currentVal = row.Get((PseudoColumn.None, col));
+                        if (!newval.Equals(currentVal))
+                        {
+                            actions.AppendParamEditAction(row, (PseudoColumn.None, col), newval);
+                        }
                     }
                 }
             }
