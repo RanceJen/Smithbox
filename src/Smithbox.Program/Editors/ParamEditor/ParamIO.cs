@@ -220,7 +220,9 @@ public class ParamIO
 
             Dictionary<int, int> idCounts = new();
             var changeCount = 0;
+            var addedCount = 0;
             List<EditorAction> actions = new();
+            List<Param.Row> addedParams = new();
 
             foreach (var csvLine in csvLines)
             {
@@ -268,14 +270,12 @@ public class ParamIO
                     {
                         continue;
                     }
-                    if (idIteration <= 1)
-                    {
-                        return ($@"Could not locate row {id}", null);
-                    }
-                    else
-                    {
-                        return ($@"Could not locate row {id}, iteration {idIteration}", null);
-                    }
+                    
+                    // Create a new row if it doesn't exist
+                    string newRowName = field.Equals("Name") ? value : "";
+                    row = new Param.Row(id, newRowName, p);
+                    addedParams.Add(row);
+                    addedCount++;
                 }
 
                 if (field.Equals("Name"))
@@ -330,7 +330,14 @@ public class ParamIO
             }
 
             changeCount = actions.Count;
-            return ($@"{changeCount} rows affected", new CompoundAction(actions));
+            
+            // Add new rows if any were created
+            if (addedCount != 0)
+            {
+                actions.Add(new AddParamsAction(project.ParamEditor, p, "legacystring", addedParams, false, false));
+            }
+            
+            return ($@"{changeCount} rows affected, {addedCount} rows added", new CompoundAction(actions));
         }
         catch
         {
