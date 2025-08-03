@@ -337,7 +337,7 @@ public class ParamIO
                 actions.Add(new AddParamsAction(project.ParamEditor, p, "legacystring", addedParams, false, false));
             }
             
-            return ($@"{changeCount} rows affected, {addedCount} rows added", new CompoundAction(actions));
+            return ($@"{changeCount} rows affected and {addedCount} rows added", new CompoundAction(actions));
         }
         catch
         {
