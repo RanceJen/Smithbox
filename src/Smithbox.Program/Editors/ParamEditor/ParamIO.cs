@@ -208,9 +208,15 @@ public class ParamIO
             }
 
             var csvLines = csvString.Split("\n");
+            int fieldIndex = -1;
+            
             if (csvLines[0].Trim().StartsWith($@"ID{separator}"))
             {
-                if (!csvLines[0].Contains($@"ID{separator}{field}"))
+                // Parse header to find the field index
+                var headers = csvLines[0].Trim().Split(separator);
+                fieldIndex = Array.IndexOf(headers, field);
+                
+                if (fieldIndex == -1)
                 {
                     return ("CSV has wrong field name", null);
                 }
@@ -231,19 +237,30 @@ public class ParamIO
                     continue;
                 }
 
-                var csvs = csvLine.Trim().Split(separator, 2);
-
+                var csvs = csvLine.Trim().Split(separator);
+                
                 // Used to skip the empty IDs in the name lists
                 if (skipInvalidLines)
                 {
-                    if (csvs.Length != 2)
+                    if (csvs.Length < 2)
                         continue;
                 }
 
-
-                if (csvs.Length != 2 && !(csvs.Length == 3 && csvs[2].Trim().Equals("")))
+                // For multi-column CSV with header, we need at least fieldIndex+1 columns
+                // For simple 2-column CSV, we need exactly 2 columns
+                if (fieldIndex != -1)
                 {
-                    return ("CSV has wrong number of values.\n\nYour CSV input was likely generated from an older paramdef configuration. You should re-generate it by loading the target regulation.bin and then re-exporting the CSV values.", null);
+                    if (csvs.Length <= fieldIndex)
+                    {
+                        return ("CSV has insufficient columns for the specified field", null);
+                    }
+                }
+                else
+                {
+                    if (csvs.Length != 2 && !(csvs.Length == 3 && csvs[2].Trim().Equals("")))
+                    {
+                        return ("CSV has wrong number of values.\n\nYour CSV input was likely generated from an older paramdef configuration. You should re-generate it by loading the target regulation.bin and then re-exporting the CSV values.", null);
+                    }
                 }
 
                 var id = int.Parse(csvs[0]);
@@ -252,7 +269,8 @@ public class ParamIO
                 idCounts.TryAdd(id, 0);
                 var idCount = idCounts[id] = idCounts[id] + 1;
 
-                var value = csvs[1];
+                // Extract the value based on field index or default to second column
+                var value = fieldIndex != -1 ? csvs[fieldIndex] : csvs[1];
 
                 Param.Row? row = FindRow(p, id, idCount, out var idIteration);
                 Param.Row? row_vanilla = null;
